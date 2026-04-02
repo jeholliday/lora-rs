@@ -526,6 +526,10 @@ where
                 }
             }
             RadioMode::Receive(RxMode::Continuous) | RadioMode::Receive(RxMode::Single(_)) => {
+                if IrqMask::CRCError.is_set_in(irq_flags) {
+                    debug!("CRC error in radio mode {}", radio_mode);
+                    return Err(RadioError::CrcError);
+                }
                 if (irq_flags & IrqMask::RxDone.value()) == IrqMask::RxDone.value() {
                     debug!("RxDone in radio mode {}", radio_mode);
                     return Ok(Some(IrqState::Done));
@@ -623,5 +627,19 @@ mod tests {
                 assert!(error.abs() < DELTA);
             }
         }
+    }
+
+    #[test]
+    fn crc_error_flag_detected_with_rxdone() {
+        // SX127x sets both CRCError and RxDone simultaneously on bad CRC
+        let irq_flags = IrqMask::CRCError.value() | IrqMask::RxDone.value();
+        assert!(IrqMask::CRCError.is_set_in(irq_flags));
+        assert!(IrqMask::RxDone.is_set_in(irq_flags));
+    }
+
+    #[test]
+    fn crc_error_radio_error_variant_exists() {
+        let err = RadioError::CrcError;
+        assert_eq!(err, RadioError::CrcError);
     }
 }

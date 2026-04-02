@@ -26,6 +26,7 @@ pub enum RadioError {
     InvalidOutputPowerForFrequency,
     TransmitTimeout,
     ReceiveTimeout,
+    CrcError,
     DutyCycleUnsupported,
     RngUnsupported,
 }

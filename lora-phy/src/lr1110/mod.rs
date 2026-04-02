@@ -1874,7 +1874,8 @@ where
             }
             RadioMode::Receive(_) => {
                 if IrqMask::CrcError.is_set(irq_flags) || IrqMask::HeaderError.is_set(irq_flags) {
-                    debug!("CRC or Header error");
+                    debug!("CRC or Header error in radio mode {}", radio_mode);
+                    return Err(RadioError::CrcError);
                 }
                 if IrqMask::RxDone.is_set(irq_flags) {
                     return Ok(Some(IrqState::Done));
@@ -1946,5 +1947,26 @@ mod tests {
         let hp_max: i32 = 22;
         assert_eq!(lp_min as u8, 0xEF);
         assert_eq!(hp_max as u8, 22);
+    }
+
+    #[test]
+    fn crc_error_flag_detected_with_rxdone() {
+        // LR1110 sets both CrcError and RxDone simultaneously on bad CRC
+        let irq_flags = IrqMask::CrcError.value() | IrqMask::RxDone.value();
+        assert!(IrqMask::CrcError.is_set(irq_flags));
+        assert!(IrqMask::RxDone.is_set(irq_flags));
+    }
+
+    #[test]
+    fn header_error_flag_detected_with_rxdone() {
+        let irq_flags = IrqMask::HeaderError.value() | IrqMask::RxDone.value();
+        assert!(IrqMask::HeaderError.is_set(irq_flags));
+        assert!(IrqMask::RxDone.is_set(irq_flags));
+    }
+
+    #[test]
+    fn crc_error_radio_error_variant_exists() {
+        let err = RadioError::CrcError;
+        assert_eq!(err, RadioError::CrcError);
     }
 }

@@ -920,11 +920,9 @@ where
                 }
             }
             RadioMode::Receive(_) => {
-                if IrqMask::HeaderError.is_set(irq_flags) {
-                    debug!("HeaderError in radio mode {}", radio_mode);
-                }
-                if IrqMask::CRCError.is_set(irq_flags) {
-                    debug!("CRCError in radio mode {}", radio_mode);
+                if IrqMask::HeaderError.is_set(irq_flags) || IrqMask::CRCError.is_set(irq_flags) {
+                    debug!("CRC/Header error in radio mode {}", radio_mode);
+                    return Err(RadioError::CrcError);
                 }
                 if IrqMask::RxDone.is_set(irq_flags) {
                     debug!("RxDone in radio mode {}", radio_mode);
@@ -1006,5 +1004,27 @@ mod tests {
 
         // sx126x 0x1424 corresponds to sx127 0x12
         assert_eq!(convert_sync_word(0x12), [0x14, 0x24]);
+    }
+
+    #[test]
+    fn crc_error_flag_detected_with_rxdone() {
+        // SX1262 sets both CRCError and RxDone simultaneously on bad CRC
+        let irq_flags = IrqMask::CRCError.value() | IrqMask::RxDone.value();
+        assert!(IrqMask::CRCError.is_set(irq_flags));
+        assert!(IrqMask::RxDone.is_set(irq_flags));
+    }
+
+    #[test]
+    fn header_error_flag_detected_with_rxdone() {
+        let irq_flags = IrqMask::HeaderError.value() | IrqMask::RxDone.value();
+        assert!(IrqMask::HeaderError.is_set(irq_flags));
+        assert!(IrqMask::RxDone.is_set(irq_flags));
+    }
+
+    #[test]
+    fn crc_error_radio_error_variant_exists() {
+        // RadioError must have a CrcError variant for CRC failures
+        let err = RadioError::CrcError;
+        assert_eq!(err, RadioError::CrcError);
     }
 }

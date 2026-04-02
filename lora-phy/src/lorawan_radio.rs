@@ -134,7 +134,7 @@ where
         if let Some(rx_params) = &self.rx_pkt_params {
             match self.lora.rx(rx_params, buf).await {
                 Ok((len, q)) => Ok(RxStatus::Rx(len as usize, RxQuality::new(q.rssi, q.snr as i8))),
-                Err(RadioError::ReceiveTimeout) => Ok(RxStatus::RxTimeout),
+                Err(RadioError::ReceiveTimeout) | Err(RadioError::CrcError) => Ok(RxStatus::RxTimeout),
                 Err(err) => Err(err.into()),
             }
         } else {
