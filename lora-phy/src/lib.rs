@@ -284,16 +284,17 @@ where
         }
     }
 
-    /// Wait for a previously started receive to complete
+    /// Internal helper for `complete_rx` and `complete_rx_with_crc_status`.
     ///
-    /// # Warning
-    /// This function is not safe to drop or cancel, as it calls `process_irq_event`, which must run to completion to avoid radio lockups.
-    /// Do not call this function within a select branch or in any context where it may be prematurely canceled.
-    pub async fn complete_rx(
+    /// When `deliver_crc_failed` is `true`, CRC errors are not returned as errors -- instead,
+    /// the (possibly corrupt) payload and packet status are read from the radio and returned
+    /// with `crc_ok = false`. When `false`, CRC errors propagate as `Err(RadioError::CrcError)`.
+    async fn complete_rx_inner(
         &mut self,
         packet_params: &PacketParams,
         receiving_buffer: &mut [u8],
-    ) -> Result<(u8, PacketStatus), RadioError> {
+        deliver_crc_failed: bool,
+    ) -> Result<(u8, PacketStatus, bool), RadioError> {
         if let RadioMode::Receive(_) = self.radio_mode {
             loop {
                 match self.radio_kind.process_irq_event(self.radio_mode, None, true).await {
@@ -302,10 +303,20 @@ where
                         IrqState::Done => {
                             let received_len = self.radio_kind.get_rx_payload(packet_params, receiving_buffer).await?;
                             let rx_pkt_status = self.radio_kind.get_rx_packet_status().await?;
-                            return Ok((received_len, rx_pkt_status));
+                            return Ok((received_len, rx_pkt_status, true));
                         }
                     },
                     Ok(None) => (),
+                    Err(RadioError::CrcError) if deliver_crc_failed => {
+                        let received_len = self.radio_kind.get_rx_payload(packet_params, receiving_buffer).await?;
+                        let rx_pkt_status = self.radio_kind.get_rx_packet_status().await?;
+                        if self.radio_mode != RadioMode::Receive(RxMode::Continuous) {
+                            self.radio_kind.ensure_ready(self.radio_mode).await?;
+                            self.radio_kind.set_standby().await?;
+                            self.radio_mode = RadioMode::Standby;
+                        }
+                        return Ok((received_len, rx_pkt_status, false));
+                    }
                     Err(err) => {
                         // if in rx continuous mode, allow the caller to determine whether to keep receiving
                         if self.radio_mode != RadioMode::Receive(RxMode::Continuous) {
@@ -321,6 +332,20 @@ where
         } else {
             Err(RadioError::InvalidRadioMode)
         }
+    }
+
+    /// Wait for a previously started receive to complete
+    ///
+    /// # Warning
+    /// This function is not safe to drop or cancel, as it calls `process_irq_event`, which must run to completion to avoid radio lockups.
+    /// Do not call this function within a select branch or in any context where it may be prematurely canceled.
+    pub async fn complete_rx(
+        &mut self,
+        packet_params: &PacketParams,
+        receiving_buffer: &mut [u8],
+    ) -> Result<(u8, PacketStatus), RadioError> {
+        let (received_len, rx_pkt_status, _crc_ok) = self.complete_rx_inner(packet_params, receiving_buffer, false).await?;
+        Ok((received_len, rx_pkt_status))
     }
 
     /// Returns the current IRQ state
@@ -358,6 +383,40 @@ where
     ) -> Result<(u8, PacketStatus), RadioError> {
         self.start_rx().await?;
         self.complete_rx(packet_params, receiving_buffer).await
+    }
+
+    /// Like [`LoRa::complete_rx`], but delivers CRC-failed packets instead of returning an error.
+    ///
+    /// Returns `(payload_length, packet_status, crc_ok)`. When `crc_ok` is `false`, the buffer
+    /// contains the (possibly corrupt) payload and `PacketStatus` contains valid RSSI/SNR
+    /// measurements from the radio hardware.
+    ///
+    /// # Warning
+    /// This function is not safe to drop or cancel, as it calls `process_irq_event`, which must run to completion to avoid radio lockups.
+    /// Do not call this function within a select branch or in any context where it may be prematurely canceled.
+    pub async fn complete_rx_with_crc_status(
+        &mut self,
+        packet_params: &PacketParams,
+        receiving_buffer: &mut [u8],
+    ) -> Result<(u8, PacketStatus, bool), RadioError> {
+        self.complete_rx_inner(packet_params, receiving_buffer, true).await
+    }
+
+    /// Like [`LoRa::rx`], but delivers CRC-failed packets instead of returning an error.
+    ///
+    /// Returns `(payload_length, packet_status, crc_ok)`. When `crc_ok` is `false`, the buffer
+    /// contains the (possibly corrupt) payload and `PacketStatus` contains valid RSSI/SNR
+    /// measurements from the radio hardware.
+    ///
+    /// # Warning
+    /// See [`LoRa::complete_rx_with_crc_status`] for cancellation safety constraints.
+    pub async fn rx_with_crc_status(
+        &mut self,
+        packet_params: &PacketParams,
+        receiving_buffer: &mut [u8],
+    ) -> Result<(u8, PacketStatus, bool), RadioError> {
+        self.start_rx().await?;
+        self.complete_rx_with_crc_status(packet_params, receiving_buffer).await
     }
 
     /// Start listening to a given frequency and [`Bandwidth`]

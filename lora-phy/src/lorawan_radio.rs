@@ -150,6 +150,8 @@ where
                         RxQuality::new(rx_pkt_status.rssi, rx_pkt_status.snr as i8), // downcast snr
                     ))
                 }
+                // Explicit: makes CRC handling visible; .into() would produce the same value.
+                Err(RadioError::CrcError) => Err(Error::Radio(RadioError::CrcError)),
                 Err(err) => Err(err.into()),
             }
         } else {

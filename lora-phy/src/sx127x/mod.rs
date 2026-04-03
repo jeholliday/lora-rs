@@ -526,6 +526,8 @@ where
                 }
             }
             RadioMode::Receive(RxMode::Continuous) | RadioMode::Receive(RxMode::Single(_)) => {
+                // Note: sx127x has no HeaderError flag (unlike sx126x/lr1110).
+                // It only signals HeaderValid; invalid headers don't get a dedicated IRQ.
                 if IrqMask::CRCError.is_set_in(irq_flags) {
                     debug!("CRC error in radio mode {}", radio_mode);
                     return Err(RadioError::CrcError);
@@ -637,9 +639,4 @@ mod tests {
         assert!(IrqMask::RxDone.is_set_in(irq_flags));
     }
 
-    #[test]
-    fn crc_error_radio_error_variant_exists() {
-        let err = RadioError::CrcError;
-        assert_eq!(err, RadioError::CrcError);
-    }
 }

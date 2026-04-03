@@ -1964,9 +1964,4 @@ mod tests {
         assert!(IrqMask::RxDone.is_set(irq_flags));
     }
 
-    #[test]
-    fn crc_error_radio_error_variant_exists() {
-        let err = RadioError::CrcError;
-        assert_eq!(err, RadioError::CrcError);
-    }
 }
